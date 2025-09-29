@@ -1,0 +1,99 @@
+currentUserEmail = zoho.loginuserid;
+// Step 1: Get all users
+usersList = invokeurl
+[
+	url :"https://www.zohoapis.com/bigin/v2/users?type=ActiveUsers"
+	type :GET
+	connection:"callcentertest__bigin"
+];
+// Find current user ID and name
+currentUserId = "";
+currentUserName = "";
+for each  user in usersList.get("users")
+{
+	if(user.get("email") == currentUserEmail)
+	{
+		currentUserId = user.get("id");
+		currentUserName = user.get("full_name");
+		break;
+	}
+}
+// Step 2: Get tasks sorted by Created_Time
+existingTasks = invokeurl
+[
+	url :"https://www.zohoapis.com/bigin/v2/Tasks?fields=Owner,Status,Subject,Due_Date,Related_To&sort_by=Created_Time&sort_order=asc&per_page=200&page=1"
+	type :GET
+	connection:"callcentertest__bigin"
+];
+// Step 3: Separate tasks assigned to current user and others
+currentUserTasks = list();
+otherUserTasks = list();
+for each  task in existingTasks.get("data")
+{
+	owner = task.get("Owner");
+	status = task.get("Status");
+	if(owner != null && status == "In Progress")
+	{
+		if(owner.get("email") == currentUserEmail)
+		{
+			currentUserTasks.add(task);
+		}
+		else if(owner.get("name") == "Shane Bogue")
+		{
+			// change as needed
+			otherUserTasks.add(task);
+		}
+	}
+}
+// Step 4: Determine task to assign or display
+taskToReturn = null;
+contactData = null;
+contactUrl = "";
+if(currentUserTasks.size() > 0)
+{
+	// user already has an in-progress task
+	taskToReturn = currentUserTasks.get(0);
+}
+else if(otherUserTasks.size() > 0)
+{
+	// assign oldest in-progress task from Shane
+	oldestTask = otherUserTasks.get(0);
+	taskId = oldestTask.get("id");
+	// build owner object and update payload (wrapped in "data" list)
+	ownerObj = Map();
+	ownerObj.put("id",currentUserId);
+	updateMap = Map();
+	updateMap.put("Owner",ownerObj);
+	dataList = list();
+	dataList.add(updateMap);
+	wrapper = Map();
+	wrapper.put("data",dataList);
+	// make the PUT to update the task owner
+	updateResponse = invokeurl
+	[
+		url :"https://www.zohoapis.com/bigin/v2/Tasks/" + taskId
+		type :PUT
+		body:wrapper.toString()
+		connection:"callcentertest__bigin"
+	];
+	info updateResponse;
+	// log API response for debugging
+	taskToReturn = oldestTask;
+}
+// Step 5: Fetch related contact info and open it if present
+if(taskToReturn != null)
+{
+	related = taskToReturn.get("Related_To");
+	if(related != null && related.containsKey("id") && related.get("id") != null)
+	{
+		contactId = related.get("id");
+		contactUrl = "https://bigin.zoho.com/bigin/krasivawindows/Home#/contacts/" + contactId + "?section=activities";
+		// open tab (works from a client-side button)
+		openUrl(contactUrl,"new window");
+	}
+}
+else
+{
+	return "No Current Leads To Be Called";
+}
+return "";
